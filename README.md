@@ -1,4 +1,25 @@
-# gray-narrow
+<div align="center">
+  <img alt="gray-narrow" src="assets/icon.svg" width="120" height="120" />
+  <h1>gray-narrow</h1>
+  <p><strong>Capability narrowing for delegated gray children. A child can only shrink its parent's tool grant.</strong></p>
+  <p>
+    <a href="https://gray.alignment.id">Website</a> ·
+    <a href="https://gray.alignment.id/plugins/gray-narrow">Store</a> ·
+    <a href="https://github.com/vstaln/gray-narrow">Source</a> ·
+    <a href="https://github.com/vstaln/gray">gray</a>
+  </p>
+  <p>
+    <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-1c1c20?style=flat-square&labelColor=0a0a0b" /></a>
+    <a href="https://www.rust-lang.org"><img alt="Built with Rust" src="https://img.shields.io/badge/built%20with-rust-1c1c20?style=flat-square&labelColor=0a0a0b&logo=rust&logoColor=d4a373" /></a>
+    <a href="https://gray.alignment.id/plugins/gray-narrow"><img alt="gray plugin" src="https://img.shields.io/badge/gray-plugin-1c1c20?style=flat-square&labelColor=0a0a0b&color=7aa2f7" /></a>
+  </p>
+</div>
+
+<br/>
+
+```bash
+gray plugin install gray-narrow
+```
 
 Capability narrowing for delegated gray children — a port of pi-daddy's grant
 model (MIT). A delegation may only ever **shrink** the tool set it hands down:
@@ -111,3 +132,10 @@ through env.
   `bash`).
 - Deny events are logged per call; a model retry-loop grows the ledger
   linearly (append-only, small lines).
+
+## Tags
+
+`gray` `plugin` `narrow` `rust`
+
+---
+Part of the [gray](https://github.com/vstaln/gray) plugin ecosystem, the open-source AI agent harness. <https://gray.alignment.id>
