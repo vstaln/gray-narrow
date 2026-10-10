@@ -120,7 +120,7 @@ struct Planned {
 /// ledger event. Err(msg) when the delegation is refused (denied entries,
 /// gated without approval, empty result, depth cap, bad ids) — callers
 /// propagate the message to the user and do NOT spawn.
-fn plan(request_csv: Option<&str>, agent: Option<&str>, approve_csv: Option<&str>, via: &str, cwd: &str) -> Result<Planned, String> {
+fn plan(request_csv: Option<&str>, agent: Option<&str>, approve_csv: Option<&str>, via: &str, cwd: &str, run_id: Option<String>) -> Result<Planned, String> {
     let (depth, max_depth, malformed) = depth_config();
     if !malformed.is_empty() {
         return Err(format!(
@@ -155,10 +155,10 @@ fn plan(request_csv: Option<&str>, agent: Option<&str>, approve_csv: Option<&str
         approved,
     };
     let out = resolve(&input);
-    let run_id = format!("{:x}", std::time::SystemTime::now()
+    let run_id = run_id.unwrap_or_else(|| format!("{:x}", std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
-        .unwrap_or_default());
+        .unwrap_or_default()));
 
     if !out.denied.is_empty() {
         let ev = grant_event(via, &run_id, agent, cwd, depth + 1, max_depth, &input, &out, "refused", "requested capabilities not held by parent");
@@ -282,27 +282,14 @@ fn spawn_child(prompt: &str, env: &[(String, String)], cwd: &str, run_id: &str, 
     if let Some(e) = effort {
         cmd.env("GRAY_THINKING_EFFORT", e);
     }
+    // Own process group: the run outlives this spawner like gray-subagents'
+    // detached children (start_new_session equivalent for our purposes).
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
-        unsafe {
-            cmd.pre_exec(|| {
-                libc_setpgid();
-                Ok(())
-            });
-        }
+        cmd.process_group(0);
     }
     cmd.spawn().map(|c| c.id()).map_err(|e| format!("could not spawn {}: {e}", gray_binary()))
-}
-
-#[cfg(unix)]
-fn libc_setpgid() {
-    extern "C" {
-        fn setpgid(pid: i32, pgid: i32) -> i32;
-    }
-    unsafe {
-        setpgid(0, 0);
-    }
 }
 
 fn run_record(run_id: &str, name: &str, agent: Option<&str>, task: &str, cwd: &str, grant: &[String], pid: u32) {
@@ -321,7 +308,7 @@ fn run_record(run_id: &str, name: &str, agent: Option<&str>, task: &str, cwd: &s
 fn do_run(task: &str, tools: Option<&str>, agent: Option<&str>, name: Option<&str>,
           approve: Option<&str>, model: Option<&str>, effort: Option<&str>,
           cwd: &str, via: &str) -> Result<String, String> {
-    let planned = plan(tools, agent, approve, via, cwd)?;
+    let planned = plan(tools, agent, approve, via, cwd, None)?;
     let grant_csv = grant_env_value(&planned.out.effective)?;
     let prompt = child_prompt(agent, task, &grant_csv);
     let name = name
@@ -419,10 +406,7 @@ fn do_plan(args: PlanArgs) -> Result<Value, String> {
     let cwd = std::env::current_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let mut planned = plan(args.request.as_deref(), args.agent.as_deref(), args.approve.as_deref(), &args.via, &cwd)?;
-    if let Some(r) = args.run_id {
-        planned.run_id = r;
-    }
+    let planned = plan(args.request.as_deref(), args.agent.as_deref(), args.approve.as_deref(), &args.via, &cwd, args.run_id)?;
     let ev = grant_event(&args.via, &planned.run_id, args.agent.as_deref(), &cwd,
                          planned.depth + 1, planned.max_depth, &planned.input, &planned.out,
                          "granted", "");
