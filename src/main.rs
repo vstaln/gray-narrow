@@ -307,14 +307,20 @@ fn run_record(run_id: &str, name: &str, agent: Option<&str>, task: &str, cwd: &s
 #[allow(clippy::too_many_arguments)]
 fn do_run(task: &str, tools: Option<&str>, agent: Option<&str>, name: Option<&str>,
           approve: Option<&str>, model: Option<&str>, effort: Option<&str>,
-          cwd: &str, via: &str) -> Result<String, String> {
+          cwd: &str, via: &str, session: &str) -> Result<String, String> {
     let planned = plan(tools, agent, approve, via, cwd, None)?;
     let grant_csv = grant_env_value(&planned.out.effective)?;
     let prompt = child_prompt(agent, task, &grant_csv);
     let name = name
         .map(str::to_string)
         .unwrap_or_else(|| format!("run-{}", &planned.run_id[..8]));
-    let pid = spawn_child(&prompt, &planned.env, cwd, &planned.run_id, &name, model, effort)?;
+    // Forward the owning-session marker: the child's own descendants
+    // (and foreign_scan adoption) scope back to this session's tree.
+    let mut env = planned.env.clone();
+    if !session.is_empty() {
+        env.push(("GRAY_SESSION_ID".into(), session.into()));
+    }
+    let pid = spawn_child(&prompt, &env, cwd, &planned.run_id, &name, model, effort)?;
     let ev = grant_event(via, &planned.run_id, agent, cwd, planned.depth + 1, planned.max_depth,
                          &planned.input, &planned.out, "granted", "");
     let _ = append_ledger(&ev);
@@ -512,7 +518,8 @@ fn run_command(argv: &[&str]) -> String {
                         });
                         do_run(&task.join(" "), tools.as_deref(), agent.as_deref(),
                                name.as_deref(), approve.as_deref(), model.as_deref(),
-                               effort.as_deref(), &cwd, "command")
+                               effort.as_deref(), &cwd, "command",
+                               &std::env::var("GRAY_SESSION_ID").unwrap_or_default())
                             .unwrap_or_else(|e| format!("refused: {e}"))
                     }
                     Cmd::Plan { request, agent, approve, via, run_id } => {
@@ -552,6 +559,7 @@ fn tool_call(params: &Value) -> Value {
         None,
         &cwd,
         "delegate-tool",
+        params["session"]["id"].as_str().unwrap_or(""),
     ) {
         Ok(text) => json!({"content": text}),
         Err(e) => json!({"content": format!("narrow_delegate refused: {e}"), "is_error": true}),
@@ -639,6 +647,7 @@ fn main() {
             effort.as_deref(),
             &cwd.unwrap_or_else(default_cwd),
             "narrow-run",
+            &std::env::var("GRAY_SESSION_ID").unwrap_or_default(),
         ),
         Cmd::Plan { request, agent, approve, via, run_id } => do_plan(PlanArgs {
             request, agent, approve, via, run_id,
