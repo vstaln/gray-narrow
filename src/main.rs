@@ -15,6 +15,7 @@
 //!   status  list narrow-spawned runs
 
 use std::io::{BufRead, Write};
+#[cfg(target_os = "linux")]
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -289,6 +290,13 @@ fn spawn_child(prompt: &str, env: &[(String, String)], cwd: &str, run_id: &str, 
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
     }
+    // CREATE_NEW_PROCESS_GROUP: the Windows equivalent — the child gets its
+    // own console group so it outlives this spawner and skips our Ctrl+C.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x00000200);
+    }
     cmd.spawn().map(|c| c.id()).map_err(|e| format!("could not spawn {}: {e}", gray_binary()))
 }
 
@@ -456,6 +464,45 @@ fn do_grants() -> String {
     s
 }
 
+/// Is `pid` still running? Best-effort for the status table: /proc on
+/// Linux, `kill -0` on the rest of unix, `tasklist` on Windows.
+#[cfg(target_os = "linux")]
+fn pid_alive(pid: u64) -> bool {
+    pid > 0 && PathBuf::from(format!("/proc/{pid}")).exists()
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn pid_alive(pid: u64) -> bool {
+    pid > 0
+        && Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+}
+
+#[cfg(windows)]
+fn pid_alive(pid: u64) -> bool {
+    // `tasklist /FI "PID eq N" /NH` prints the matching row in table layout
+    // (image, pid, session, mem) or an INFO "no tasks" line; column 2 is pid.
+    let want = pid.to_string();
+    pid > 0
+        && Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .map(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .lines()
+                    .any(|l| l.split_whitespace().nth(1) == Some(want.as_str()))
+            })
+            .unwrap_or(false)
+}
+
 fn do_status() -> String {
     let mut rows = vec!["run_id     name                 pid      alive  grant".to_string()];
     let mut found = false;
@@ -467,7 +514,7 @@ fn do_status() -> String {
             let Ok(rec) = serde_json::from_str::<Value>(&text) else { continue };
             found = true;
             let pid = rec["pid"].as_u64().unwrap_or(0);
-            let alive = pid > 0 && PathBuf::from(format!("/proc/{pid}")).exists();
+            let alive = pid_alive(pid);
             rows.push(format!(
                 "{:<10} {:<20} {:<8} {:<5} {}",
                 &rec["run_id"].as_str().unwrap_or("")[..8.min(rec["run_id"].as_str().unwrap_or("").len())],
