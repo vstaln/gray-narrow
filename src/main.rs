@@ -62,6 +62,7 @@ fn manifest() -> Value {
             }
         }],
         "commands": ["/narrow"],
+        "command_descriptions": {"/narrow": "run children with narrowed capability grants"},
         "hooks": ["tool/before", "prompt/context"],
         "subcommands": ["narrow"],
         "completion": ["run", "plan", "grants", "status", "ledger", "help"],
