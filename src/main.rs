@@ -77,7 +77,12 @@ fn tool_before(params: &Value) -> Value {
         None | Some(true) => json!({"decision": "allow"}),
         Some(false) => {
             let grant = current_grant().unwrap_or_default();
-            let _ = append_ledger(&deny_event(session, name, &primary_arg(name, &args), &grant));
+            let _ = append_ledger(&deny_event(
+                session,
+                name,
+                &primary_arg(name, &args),
+                &grant,
+            ));
             json!({
                 "decision": "deny",
                 "reason": format!("{name} is outside this session's narrowed grant ({}) — logged in the narrowing ledger; finish without it or report the blocker", grant.join(","))
@@ -122,7 +127,14 @@ struct Planned {
 /// ledger event. Err(msg) when the delegation is refused (denied entries,
 /// gated without approval, empty result, depth cap, bad ids) — callers
 /// propagate the message to the user and do NOT spawn.
-fn plan(request_csv: Option<&str>, agent: Option<&str>, approve_csv: Option<&str>, via: &str, cwd: &str, run_id: Option<String>) -> Result<Planned, String> {
+fn plan(
+    request_csv: Option<&str>,
+    agent: Option<&str>,
+    approve_csv: Option<&str>,
+    via: &str,
+    cwd: &str,
+    run_id: Option<String>,
+) -> Result<Planned, String> {
     let (depth, max_depth, malformed) = depth_config();
     if !malformed.is_empty() {
         return Err(format!(
@@ -131,7 +143,9 @@ fn plan(request_csv: Option<&str>, agent: Option<&str>, approve_csv: Option<&str
         ));
     }
     if depth >= max_depth {
-        return Err(format!("refusing to delegate: depth {depth} is at the narrowing bound {max_depth}"));
+        return Err(format!(
+            "refusing to delegate: depth {depth} is at the narrowing bound {max_depth}"
+        ));
     }
     let parent = current_grant().unwrap_or_else(|| vec![WILDCARD.to_string()]);
     let requested = match request_csv {
@@ -157,13 +171,29 @@ fn plan(request_csv: Option<&str>, agent: Option<&str>, approve_csv: Option<&str
         approved,
     };
     let out = resolve(&input);
-    let run_id = run_id.unwrap_or_else(|| format!("{:x}", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or_default()));
+    let run_id = run_id.unwrap_or_else(|| {
+        format!(
+            "{:x}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default()
+        )
+    });
 
     if !out.denied.is_empty() {
-        let ev = grant_event(via, &run_id, agent, cwd, depth + 1, max_depth, &input, &out, "refused", "requested capabilities not held by parent");
+        let ev = grant_event(
+            via,
+            &run_id,
+            agent,
+            cwd,
+            depth + 1,
+            max_depth,
+            &input,
+            &out,
+            "refused",
+            "requested capabilities not held by parent",
+        );
         let _ = append_ledger(&ev);
         return Err(format!(
             "refused — not held by this session's grant: {}",
@@ -171,7 +201,18 @@ fn plan(request_csv: Option<&str>, agent: Option<&str>, approve_csv: Option<&str
         ));
     }
     if !out.gated_blocked.is_empty() {
-        let ev = grant_event(via, &run_id, agent, cwd, depth + 1, max_depth, &input, &out, "refused", "gated capabilities not approved");
+        let ev = grant_event(
+            via,
+            &run_id,
+            agent,
+            cwd,
+            depth + 1,
+            max_depth,
+            &input,
+            &out,
+            "refused",
+            "gated capabilities not approved",
+        );
         let _ = append_ledger(&ev);
         return Err(format!(
             "refused — gated capabilities need explicit approval: {} (pass --approve '{}')",
@@ -180,9 +221,22 @@ fn plan(request_csv: Option<&str>, agent: Option<&str>, approve_csv: Option<&str
         ));
     }
     if out.effective.is_empty() {
-        let ev = grant_event(via, &run_id, agent, cwd, depth + 1, max_depth, &input, &out, "refused", "empty effective grant");
+        let ev = grant_event(
+            via,
+            &run_id,
+            agent,
+            cwd,
+            depth + 1,
+            max_depth,
+            &input,
+            &out,
+            "refused",
+            "empty effective grant",
+        );
         let _ = append_ledger(&ev);
-        return Err("refused — the resolved grant is empty (a no-tool child cannot work)".to_string());
+        return Err(
+            "refused — the resolved grant is empty (a no-tool child cannot work)".to_string(),
+        );
     }
     let grant_value = grant_env_value(&out.effective)?;
     let env = vec![
@@ -191,7 +245,14 @@ fn plan(request_csv: Option<&str>, agent: Option<&str>, approve_csv: Option<&str
         (ENV_MAX_DEPTH.to_string(), max_depth.to_string()),
         (ENV_RUN.to_string(), run_id.clone()),
     ];
-    Ok(Planned { run_id, env, input, out, depth, max_depth })
+    Ok(Planned {
+        run_id,
+        env,
+        input,
+        out,
+        depth,
+        max_depth,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -199,13 +260,20 @@ fn plan(request_csv: Option<&str>, agent: Option<&str>, approve_csv: Option<&str
 // ---------------------------------------------------------------------------
 
 fn load_profile(name: &str) -> Result<(String, Value), String> {
-    if !name.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
-        || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    if !name
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphanumeric())
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
         || name.len() > 64
     {
         return Err(format!("invalid agent name '{name}'"));
     }
-    let path = gray_narrow::gray_home().join("subagents/agents").join(format!("{name}.md"));
+    let path = gray_narrow::gray_home()
+        .join("subagents/agents")
+        .join(format!("{name}.md"));
     let text = std::fs::read_to_string(&path)
         .map_err(|_| format!("unknown agent '{name}' (no {})", path.display()))?;
     // Same `---` frontmatter convention as gray-subagents: model/effort/tools.
@@ -254,13 +322,24 @@ fn child_prompt(agent: Option<&str>, task: &str, grant_csv: &str) -> String {
     )
 }
 
-fn spawn_child(prompt: &str, env: &[(String, String)], cwd: &str, run_id: &str, name: &str, model: Option<&str>, effort: Option<&str>) -> Result<u32, String> {
+fn spawn_child(
+    prompt: &str,
+    env: &[(String, String)],
+    cwd: &str,
+    run_id: &str,
+    name: &str,
+    model: Option<&str>,
+    effort: Option<&str>,
+) -> Result<u32, String> {
     let dir = runs_dir();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let log = std::fs::File::create(dir.join(format!("{run_id}.log"))).map_err(|e| e.to_string())?;
+    let log =
+        std::fs::File::create(dir.join(format!("{run_id}.log"))).map_err(|e| e.to_string())?;
     let err = log.try_clone().map_err(|e| e.to_string())?;
     let mut cmd = Command::new(gray_binary());
-    cmd.arg("-p").arg(prompt).arg("--json")
+    cmd.arg("-p")
+        .arg(prompt)
+        .arg("--json")
         .arg("--max-requests")
         .arg(std::env::var("GRAY_SUBAGENTS_MAX_REQUESTS").unwrap_or_else(|_| "256".into()))
         .current_dir(cwd)
@@ -298,10 +377,20 @@ fn spawn_child(prompt: &str, env: &[(String, String)], cwd: &str, run_id: &str, 
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x00000200);
     }
-    cmd.spawn().map(|c| c.id()).map_err(|e| format!("could not spawn {}: {e}", gray_binary()))
+    cmd.spawn()
+        .map(|c| c.id())
+        .map_err(|e| format!("could not spawn {}: {e}", gray_binary()))
 }
 
-fn run_record(run_id: &str, name: &str, agent: Option<&str>, task: &str, cwd: &str, grant: &[String], pid: u32) {
+fn run_record(
+    run_id: &str,
+    name: &str,
+    agent: Option<&str>,
+    task: &str,
+    cwd: &str,
+    grant: &[String],
+    pid: u32,
+) {
     let rec = json!({
         "run_id": run_id, "name": name, "agent": agent.unwrap_or(""),
         "task": task, "cwd": cwd, "pid": pid,
@@ -314,9 +403,18 @@ fn run_record(run_id: &str, name: &str, agent: Option<&str>, task: &str, cwd: &s
 }
 
 #[allow(clippy::too_many_arguments)]
-fn do_run(task: &str, tools: Option<&str>, agent: Option<&str>, name: Option<&str>,
-          approve: Option<&str>, model: Option<&str>, effort: Option<&str>,
-          cwd: &str, via: &str, session: &str) -> Result<String, String> {
+fn do_run(
+    task: &str,
+    tools: Option<&str>,
+    agent: Option<&str>,
+    name: Option<&str>,
+    approve: Option<&str>,
+    model: Option<&str>,
+    effort: Option<&str>,
+    cwd: &str,
+    via: &str,
+    session: &str,
+) -> Result<String, String> {
     let planned = plan(tools, agent, approve, via, cwd, None)?;
     let grant_csv = grant_env_value(&planned.out.effective)?;
     let prompt = child_prompt(agent, task, &grant_csv);
@@ -330,13 +428,34 @@ fn do_run(task: &str, tools: Option<&str>, agent: Option<&str>, name: Option<&st
         env.push(("GRAY_SESSION_ID".into(), session.into()));
     }
     let pid = spawn_child(&prompt, &env, cwd, &planned.run_id, &name, model, effort)?;
-    let ev = grant_event(via, &planned.run_id, agent, cwd, planned.depth + 1, planned.max_depth,
-                         &planned.input, &planned.out, "granted", "");
+    let ev = grant_event(
+        via,
+        &planned.run_id,
+        agent,
+        cwd,
+        planned.depth + 1,
+        planned.max_depth,
+        &planned.input,
+        &planned.out,
+        "granted",
+        "",
+    );
     let _ = append_ledger(&ev);
-    run_record(&planned.run_id, &name, agent, task, cwd, &planned.out.effective, pid);
+    run_record(
+        &planned.run_id,
+        &name,
+        agent,
+        task,
+        cwd,
+        &planned.out.effective,
+        pid,
+    );
     let mut note = String::new();
     if !planned.out.subsumed_by.is_empty() {
-        note = format!(" (subsumed by parent grant: {})", planned.out.subsumed_by.join(", "));
+        note = format!(
+            " (subsumed by parent grant: {})",
+            planned.out.subsumed_by.join(", ")
+        );
     }
     Ok(format!(
         "Started narrowed run {name} [{}] pid {pid} — grant: {grant_csv}{note}. \
@@ -352,7 +471,11 @@ fn do_run(task: &str, tools: Option<&str>, agent: Option<&str>, name: Option<&st
 // ---------------------------------------------------------------------------
 
 #[derive(Parser)]
-#[command(name = "gray-narrow", version, about = "capability narrowing for delegated gray children")]
+#[command(
+    name = "gray-narrow",
+    version,
+    about = "capability narrowing for delegated gray children"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Cmd>,
@@ -421,10 +544,26 @@ fn do_plan(args: PlanArgs) -> Result<Value, String> {
     let cwd = std::env::current_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let planned = plan(args.request.as_deref(), args.agent.as_deref(), args.approve.as_deref(), &args.via, &cwd, args.run_id)?;
-    let ev = grant_event(&args.via, &planned.run_id, args.agent.as_deref(), &cwd,
-                         planned.depth + 1, planned.max_depth, &planned.input, &planned.out,
-                         "granted", "");
+    let planned = plan(
+        args.request.as_deref(),
+        args.agent.as_deref(),
+        args.approve.as_deref(),
+        &args.via,
+        &cwd,
+        args.run_id,
+    )?;
+    let ev = grant_event(
+        &args.via,
+        &planned.run_id,
+        args.agent.as_deref(),
+        &cwd,
+        planned.depth + 1,
+        planned.max_depth,
+        &planned.input,
+        &planned.out,
+        "granted",
+        "",
+    );
     let _ = append_ledger(&ev);
     let env: serde_json::Map<String, Value> = planned
         .env
@@ -456,11 +595,23 @@ struct PlanArgs {
 fn do_grants() -> String {
     let (depth, max, malformed) = depth_config();
     let grant = current_grant()
-        .map(|g| if g.is_empty() { "(empty — denies everything)".into() } else { g.join(", ") })
+        .map(|g| {
+            if g.is_empty() {
+                "(empty — denies everything)".into()
+            } else {
+                g.join(", ")
+            }
+        })
         .unwrap_or_else(|| "(ungoverned — no GRAY_NARROW_GRANT; all tools allowed)".into());
-    let mut s = format!("grant: {grant}\ndepth: {depth}/{max}\nledger: {}", ledger_path().display());
+    let mut s = format!(
+        "grant: {grant}\ndepth: {depth}/{max}\nledger: {}",
+        ledger_path().display()
+    );
     if !malformed.is_empty() {
-        s.push_str(&format!("\nWARNING: malformed depth env(s): {} — delegation is refused", malformed.join(", ")));
+        s.push_str(&format!(
+            "\nWARNING: malformed depth env(s): {} — delegation is refused",
+            malformed.join(", ")
+        ));
     }
     s
 }
@@ -510,19 +661,34 @@ fn do_status() -> String {
     if let Ok(rd) = std::fs::read_dir(runs_dir()) {
         let mut entries: Vec<_> = rd.flatten().map(|e| e.path()).collect();
         entries.sort();
-        for p in entries.into_iter().filter(|p| p.extension().is_some_and(|e| e == "json")) {
-            let Ok(text) = std::fs::read_to_string(&p) else { continue };
-            let Ok(rec) = serde_json::from_str::<Value>(&text) else { continue };
+        for p in entries
+            .into_iter()
+            .filter(|p| p.extension().is_some_and(|e| e == "json"))
+        {
+            let Ok(text) = std::fs::read_to_string(&p) else {
+                continue;
+            };
+            let Ok(rec) = serde_json::from_str::<Value>(&text) else {
+                continue;
+            };
             found = true;
             let pid = rec["pid"].as_u64().unwrap_or(0);
             let alive = pid_alive(pid);
             rows.push(format!(
                 "{:<10} {:<20} {:<8} {:<5} {}",
-                &rec["run_id"].as_str().unwrap_or("")[..8.min(rec["run_id"].as_str().unwrap_or("").len())],
+                &rec["run_id"].as_str().unwrap_or("")
+                    [..8.min(rec["run_id"].as_str().unwrap_or("").len())],
                 rec["name"].as_str().unwrap_or(""),
                 pid,
                 if alive { "yes" } else { "no" },
-                rec["grant"].as_array().map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(",")).unwrap_or_default()
+                rec["grant"]
+                    .as_array()
+                    .map(|a| a
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>()
+                        .join(","))
+                    .unwrap_or_default()
             ));
         }
     }
@@ -558,20 +724,49 @@ fn run_command(argv: &[&str]) -> String {
                 .collect();
             match Cli::try_parse_from(&full) {
                 Ok(cli) => match cli.command.unwrap_or(Cmd::Help) {
-                    Cmd::Run { task, tools, agent, name, approve, model, effort, cwd } => {
+                    Cmd::Run {
+                        task,
+                        tools,
+                        agent,
+                        name,
+                        approve,
+                        model,
+                        effort,
+                        cwd,
+                    } => {
                         let cwd = cwd.unwrap_or_else(|| {
                             std::env::current_dir()
                                 .map(|p| p.to_string_lossy().into_owned())
                                 .unwrap_or_else(|_| ".".into())
                         });
-                        do_run(&task.join(" "), tools.as_deref(), agent.as_deref(),
-                               name.as_deref(), approve.as_deref(), model.as_deref(),
-                               effort.as_deref(), &cwd, "command",
-                               &std::env::var("GRAY_SESSION_ID").unwrap_or_default())
-                            .unwrap_or_else(|e| format!("refused: {e}"))
+                        do_run(
+                            &task.join(" "),
+                            tools.as_deref(),
+                            agent.as_deref(),
+                            name.as_deref(),
+                            approve.as_deref(),
+                            model.as_deref(),
+                            effort.as_deref(),
+                            &cwd,
+                            "command",
+                            &std::env::var("GRAY_SESSION_ID").unwrap_or_default(),
+                        )
+                        .unwrap_or_else(|e| format!("refused: {e}"))
                     }
-                    Cmd::Plan { request, agent, approve, via, run_id } => {
-                        match do_plan(PlanArgs { request, agent, approve, via, run_id }) {
+                    Cmd::Plan {
+                        request,
+                        agent,
+                        approve,
+                        via,
+                        run_id,
+                    } => {
+                        match do_plan(PlanArgs {
+                            request,
+                            agent,
+                            approve,
+                            via,
+                            run_id,
+                        }) {
                             Ok(v) => serde_json::to_string_pretty(&v).unwrap_or_default(),
                             Err(e) => format!("refused: {e}"),
                         }
@@ -595,7 +790,11 @@ fn tool_call(params: &Value) -> Value {
     let cwd = params["session"]["cwd"]
         .as_str()
         .map(str::to_string)
-        .or_else(|| std::env::current_dir().ok().map(|p| p.to_string_lossy().into_owned()))
+        .or_else(|| {
+            std::env::current_dir()
+                .ok()
+                .map(|p| p.to_string_lossy().into_owned())
+        })
         .unwrap_or_else(|| ".".into());
     match do_run(
         task,
@@ -648,7 +847,9 @@ fn sidecar() -> std::io::Result<()> {
     let mut stdout = std::io::stdout();
     for line in stdin.lock().lines() {
         let line = line?;
-        let Ok(req) = serde_json::from_str::<Value>(&line) else { continue };
+        let Ok(req) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
         let (reply, exit) = handle(&req);
         if let Some(reply) = reply {
             writeln!(stdout, "{reply}")?;
@@ -679,13 +880,24 @@ fn main() {
     };
     let out: Result<String, String> = match cli.command.unwrap_or(Cmd::Sidecar) {
         Cmd::Manifest => Ok(manifest().to_string()),
-        Cmd::Sidecar => return {
-            if let Err(e) = sidecar() {
-                eprintln!("gray-narrow: {e}");
-                std::process::exit(1);
+        Cmd::Sidecar => {
+            return {
+                if let Err(e) = sidecar() {
+                    eprintln!("gray-narrow: {e}");
+                    std::process::exit(1);
+                }
             }
-        },
-        Cmd::Run { task, tools, agent, name, approve, model, effort, cwd } => do_run(
+        }
+        Cmd::Run {
+            task,
+            tools,
+            agent,
+            name,
+            approve,
+            model,
+            effort,
+            cwd,
+        } => do_run(
             &task.join(" "),
             tools.as_deref(),
             agent.as_deref(),
@@ -697,8 +909,18 @@ fn main() {
             "narrow-run",
             &std::env::var("GRAY_SESSION_ID").unwrap_or_default(),
         ),
-        Cmd::Plan { request, agent, approve, via, run_id } => do_plan(PlanArgs {
-            request, agent, approve, via, run_id,
+        Cmd::Plan {
+            request,
+            agent,
+            approve,
+            via,
+            run_id,
+        } => do_plan(PlanArgs {
+            request,
+            agent,
+            approve,
+            via,
+            run_id,
         })
         .map(|v| serde_json::to_string_pretty(&v).unwrap_or_default()),
         Cmd::Grants => Ok(do_grants()),

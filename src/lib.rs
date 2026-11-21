@@ -40,7 +40,14 @@ pub const DEFAULT_MAX_DEPTH: u32 = 2;
 /// grant resolution only — never in call-time enforcement.
 pub const SUBSUMPTION: &[(&str, &[&str])] = &[(
     "tool:bash",
-    &["tool:grep", "tool:find", "tool:ls", "tool:read", "tool:write", "tool:edit"],
+    &[
+        "tool:grep",
+        "tool:find",
+        "tool:ls",
+        "tool:read",
+        "tool:write",
+        "tool:edit",
+    ],
 )];
 
 /// Gated by default (pi-daddy DEFAULT_GATED): a `bash`-holding child can run
@@ -76,9 +83,7 @@ pub fn runs_dir() -> PathBuf {
 /// The grant is comma-separated in an env var, so `,`/CR/LF/NUL are the
 /// injection characters; leading/trailing space would let one id hide as two.
 pub fn is_well_formed_capability(id: &str) -> bool {
-    !id.is_empty()
-        && !id.contains([',', '\r', '\n', '\0'])
-        && id.trim() == id
+    !id.is_empty() && !id.contains([',', '\r', '\n', '\0']) && id.trim() == id
 }
 
 /// Strict grammar on the *generation* path (`--tools`, frontmatter, plan).
@@ -86,8 +91,9 @@ pub fn is_well_formed_capability(id: &str) -> bool {
 pub fn is_safe_capability(id: &str) -> bool {
     fn name_glob(s: &str) -> bool {
         !s.is_empty()
-            && s.chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '*' | '?' | '@'))
+            && s.chars().all(|c| {
+                c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '*' | '?' | '@')
+            })
     }
     fn arg_glob(s: &str) -> bool {
         !s.is_empty()
@@ -100,9 +106,15 @@ pub fn is_safe_capability(id: &str) -> bool {
             None => name_glob(tail),
         },
         Some(("agent", tail)) => {
-            tail == "*" || (tail.len() <= 64
-                && tail.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
-                && tail.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+            tail == "*"
+                || (tail.len() <= 64
+                    && tail
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_ascii_alphanumeric())
+                    && tail
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'))
         }
         _ => false,
     }
@@ -189,8 +201,16 @@ pub fn tool_pattern(cap: &str) -> Option<(&str, Option<&str>)> {
 /// for bash, path for file tools, url/query for web — else the compact args.
 pub fn primary_arg<'a>(name: &str, args: &'a Value) -> String {
     const KEYS: &[&str] = &[
-        "command", "path", "file_path", "url", "query", "pattern",
-        "prompt", "task", "text", "content",
+        "command",
+        "path",
+        "file_path",
+        "url",
+        "query",
+        "pattern",
+        "prompt",
+        "task",
+        "text",
+        "content",
     ];
     for k in KEYS {
         if let Some(v) = args.get(k).and_then(Value::as_str) {
@@ -361,7 +381,9 @@ fn parent_covers(parent: &[String], c: &str) -> bool {
 /// because resolve() is exact-match and nothing enumerates definitions.)
 pub fn may_spawn_agent(parent_grant: &[String], name: &str) -> bool {
     let cap = format!("agent:{name}");
-    parent_grant.iter().any(|g| g == WILDCARD || g == AGENT_WILDCARD || *g == cap)
+    parent_grant
+        .iter()
+        .any(|g| g == WILDCARD || g == AGENT_WILDCARD || *g == cap)
 }
 
 fn is_gated(c: &str, gated: &[String], approved: &[String]) -> bool {
@@ -461,7 +483,10 @@ pub fn append_ledger(event: &Value) -> std::io::Result<()> {
     let mut line = serde_json::to_string(event).unwrap_or_else(|_| "{}".into());
     line.retain(|c| c != '\n' && c != '\r');
     line.push('\n');
-    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&path)?;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)?;
     f.write_all(line.as_bytes())
 }
 
@@ -564,10 +589,19 @@ mod tests {
 
     #[test]
     fn parse_normalises_bare_and_wildcards() {
-        assert_eq!(parse_capability_list("read,grep").unwrap(), grant_of(&["tool:read", "tool:grep"]));
+        assert_eq!(
+            parse_capability_list("read,grep").unwrap(),
+            grant_of(&["tool:read", "tool:grep"])
+        );
         // `bash:*` (any-args wildcard) folds to the unconstrained `tool:bash`.
-        assert_eq!(parse_capability_list("bash:*").unwrap(), grant_of(&["tool:bash"]));
-        assert_eq!(parse_capability_list("agent:scout").unwrap(), grant_of(&["agent:scout"]));
+        assert_eq!(
+            parse_capability_list("bash:*").unwrap(),
+            grant_of(&["tool:bash"])
+        );
+        assert_eq!(
+            parse_capability_list("agent:scout").unwrap(),
+            grant_of(&["agent:scout"])
+        );
         assert_eq!(parse_capability_list("*").unwrap(), grant_of(&["tool:*"]));
         assert!(parse_capability_list("tool:bash:git*").is_ok());
         assert!(parse_capability_list("tool:read").is_ok());
@@ -579,7 +613,10 @@ mod tests {
         assert!(parse_capability_list("x\";touch /tmp/p").is_err());
         // Unknown namespaces normalise into tool arg-patterns (`x:y` =
         // tool `x` constrained to arg `y`) — harmless: no such tool exists.
-        assert_eq!(parse_capability_list("workspace:prod").unwrap(), grant_of(&["tool:workspace:prod"]));
+        assert_eq!(
+            parse_capability_list("workspace:prod").unwrap(),
+            grant_of(&["tool:workspace:prod"])
+        );
         assert!(parse_capability_list("agent:not ok").is_err());
         assert!(parse_capability_list("tool:").is_err());
     }
@@ -657,11 +694,20 @@ mod tests {
         assert_eq!(grant_allows("write", &json!({"path": "/x"})), None);
         // Governed.
         std::env::set_var(ENV_GRANT, "tool:read,tool:bash:git*");
-        assert_eq!(grant_allows("read", &json!({"path": "/etc/passwd"})), Some(true));
+        assert_eq!(
+            grant_allows("read", &json!({"path": "/etc/passwd"})),
+            Some(true)
+        );
         assert_eq!(grant_allows("write", &json!({"path": "/x"})), Some(false));
         // Arg-glob: only git commands pass.
-        assert_eq!(grant_allows("bash", &json!({"command": "git status"})), Some(true));
-        assert_eq!(grant_allows("bash", &json!({"command": "rm -rf /"})), Some(false));
+        assert_eq!(
+            grant_allows("bash", &json!({"command": "git status"})),
+            Some(true)
+        );
+        assert_eq!(
+            grant_allows("bash", &json!({"command": "rm -rf /"})),
+            Some(false)
+        );
         // Empty string = explicit empty grant: denies all.
         std::env::set_var(ENV_GRANT, "");
         assert_eq!(grant_allows("read", &json!({})), Some(false));
@@ -683,7 +729,10 @@ mod tests {
 
     #[test]
     fn grant_env_value_backstop() {
-        assert_eq!(grant_env_value(&grant_of(&["tool:read"])).unwrap(), "tool:read");
+        assert_eq!(
+            grant_env_value(&grant_of(&["tool:read"])).unwrap(),
+            "tool:read"
+        );
         assert!(grant_env_value(&["tool:x,evil".into()]).is_err());
     }
 }
