@@ -199,7 +199,7 @@ pub fn tool_pattern(cap: &str) -> Option<(&str, Option<&str>)> {
 
 /// The argument a pattern constrains: the tool's primary subject — command
 /// for bash, path for file tools, url/query for web — else the compact args.
-pub fn primary_arg<'a>(name: &str, args: &'a Value) -> String {
+pub fn primary_arg(name: &str, args: &Value) -> String {
     const KEYS: &[&str] = &[
         "command",
         "path",
@@ -370,10 +370,7 @@ fn parent_covers(parent: &[String], c: &str) -> bool {
             None => false,
         });
     }
-    if c.starts_with("agent:") && parent.iter().any(|p| p == AGENT_WILDCARD) {
-        return true;
-    }
-    false
+    c.starts_with("agent:") && parent.iter().any(|p| p == AGENT_WILDCARD)
 }
 
 /// May this grant spawn agent profile `name`? (pi-daddy `maySpawnDefinition` —
@@ -438,7 +435,7 @@ pub fn resolve(input: &ResolveInput) -> ResolveOutput {
         .collect();
     let gated_blocked: Vec<String> = requested
         .iter()
-        .filter(|c| covered(c) && ceiling.map_or(true, |ceil| ceil.contains(*c)))
+        .filter(|c| covered(c) && ceiling.is_none_or(|ceil| ceil.contains(*c)))
         .filter(|c| is_gated(c, &input.gated, &input.approved))
         .cloned()
         .collect();
